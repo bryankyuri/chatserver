@@ -1,0 +1,36 @@
+// server/index.js
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const passport = require('passport');
+const { createServer } = require('http');
+const { setupSocket } = require('./socket');
+const routes = require('./routes');
+const { sequelize } = require('./models');
+const errorMiddleware = require('./middleware/error.middleware');
+
+const app = express();
+const httpServer = createServer(app);
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(passport.initialize());
+
+// Routes
+app.use('/api', routes);
+
+// Error handling
+app.use(errorMiddleware);
+
+// Socket.IO setup
+setupSocket(httpServer);
+
+// Database connection and server start
+const PORT = process.env.PORT || 3000;
+
+sequelize.sync().then(() => {
+  httpServer.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+});
