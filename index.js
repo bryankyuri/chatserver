@@ -10,7 +10,7 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173", // Vite's default port
+    origin: ["http://localhost:5173", "https://groupchatroom.vercel.app"],
     methods: ["GET", "POST"],
   },
 });
@@ -73,13 +73,13 @@ io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   // Handle group creation
-  socket.on('group:create', ({ name, maxUsers, creator }) => {
+  socket.on("group:create", ({ name, maxUsers, creator }) => {
     try {
       if (!name || !creator) {
-        socket.emit('group:error', 'Invalid group data');
+        socket.emit("group:error", "Invalid group data");
         return;
       }
-  
+
       const groupId = `group_${Date.now()}`;
       const newGroup = {
         id: groupId,
@@ -88,16 +88,16 @@ io.on("connection", (socket) => {
         isPublic: true, // Make group public by default
         adminId: creator.id,
         members: [creator.id], // Start with creator as member
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       };
-      
+
       groups.set(groupId, newGroup);
       socket.join(groupId);
-      socket.emit('group:created', { groupId, group: newGroup });
-      io.emit('groups:update', Array.from(groups.values()));
+      socket.emit("group:created", { groupId, group: newGroup });
+      io.emit("groups:update", Array.from(groups.values()));
     } catch (error) {
-      console.error('Error creating group:', error);
-      socket.emit('group:error', 'Failed to create group');
+      console.error("Error creating group:", error);
+      socket.emit("group:error", "Failed to create group");
     }
   });
 
@@ -198,11 +198,10 @@ io.on("connection", (socket) => {
     if (group.isPublic) {
       group.members.push(user.id);
       socket.join(groupId);
-      socket.emit('group:joined', { groupId, group });
-      io.emit('groups:update', Array.from(groups.values()));
+      socket.emit("group:joined", { groupId, group });
+      io.emit("groups:update", Array.from(groups.values()));
       return;
     }
-  
 
     // Notify group admin
     const adminSocket = Array.from(io.sockets.sockets.values()).find(
@@ -409,42 +408,50 @@ io.on("connection", (socket) => {
   });
 
   // Handle messages
-  socket.on('message:send', ({ roomId, message }) => {
+  socket.on("message:send", ({ roomId, message }) => {
     try {
       const room = rooms.get(roomId);
       const user = activeUsers.get(socket.id);
-      
+
       if (!room || !user) return;
-  
+
       // For public rooms or if user is a member, allow posting
       const canPost = room.isPublic || room.members.includes(user.id);
-      
+
       if (!canPost) {
-        socket.emit('error', 'You do not have permission to post messages in this room');
+        socket.emit(
+          "error",
+          "You do not have permission to post messages in this room"
+        );
         return;
       }
-  
+
       // For media messages in non-public rooms, check if user is a member
-      if ((message.type === 'audio' || message.type === 'image') && !room.isPublic) {
+      if (
+        (message.type === "audio" || message.type === "image") &&
+        !room.isPublic
+      ) {
         const canShareMedia = room.members.includes(user.id);
         if (!canShareMedia) {
-          socket.emit('error', 'You do not have permission to share media in this room');
+          socket.emit(
+            "error",
+            "You do not have permission to share media in this room"
+          );
           return;
         }
       }
-  
+
       // Store message
       const newMessage = {
         ...message,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-  
+
       room.messages.push(newMessage);
-      io.to(roomId).emit('message:received', newMessage);
-  
+      io.to(roomId).emit("message:received", newMessage);
     } catch (error) {
-      console.error('Error sending message:', error);
-      socket.emit('error', 'Failed to send message');
+      console.error("Error sending message:", error);
+      socket.emit("error", "Failed to send message");
     }
   });
 
