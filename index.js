@@ -304,37 +304,29 @@ io.on("connection", (socket) => {
   });
 
   // Handle room join
-  socket.on("room:join", ({ roomId, user }) => {
+  socket.on('room:join', ({ roomId, user }) => {
     const room = rooms.get(roomId);
     if (!room) return;
-
+  
     socket.join(roomId);
-
-    // Add user to room members if public room
-    if (room.isPublic && !room.members.includes(user.id)) {
-      room.members.push(user.id);
-    }
-
-    // Update active members count
-    if (!room.activeMembers) {
-      room.activeMembers = new Set();
-    }
-    room.activeMembers.add(user.id);
-
-    // Send room info to the client
-    socket.emit("room:info", {
-      id: room.id,
-      name: room.name,
-      description: room.description,
-      isPublic: room.isPublic,
-      members: room.members,
-      memberCount: room.members.length,
-      activeMembers: room.activeMembers.size,
-      creator: room.creator,
+    
+    // Mark all existing messages as seen by this user
+    room.messages.forEach(msg => {
+      if (!msg.seenBy.includes(user.id)) {
+        msg.seenBy.push(user.id);
+        io.to(roomId).emit('message:seen:update', { 
+          messageId: msg.id, 
+          seenBy: msg.seenBy 
+        });
+      }
     });
-
-    // Send message history
-    socket.emit("message:history", room.messages);
+  
+    socket.emit('room:info', {
+      ...room,
+      memberCount: room.members.length,
+      activeMembers: io.sockets.adapter.rooms.get(roomId)?.size || 0
+    });
+    socket.emit('message:history', room.messages);
   });
 
   socket.on("room:update-permissions", ({ roomId, permissions }) => {
@@ -409,49 +401,32 @@ io.on("connection", (socket) => {
 
   // Handle messages
   socket.on("message:send", ({ roomId, message }) => {
-    try {
-      const room = rooms.get(roomId);
-      const user = activeUsers.get(socket.id);
+    const room = rooms.get(roomId);
+    if (!room) return;
 
-      if (!room || !user) return;
+    const newMessage = {
+      ...message,
+      id: Date.now().toString(), // Ensure unique ID
+      timestamp: new Date().toISOString(),
+      seenBy: [message.sender.id], // Initialize with sender
+    };
 
-      // For public rooms or if user is a member, allow posting
-      const canPost = room.isPublic || room.members.includes(user.id);
+    room.messages.push(newMessage);
+    io.to(roomId).emit("message:received", newMessage);
+  });
 
-      if (!canPost) {
-        socket.emit(
-          "error",
-          "You do not have permission to post messages in this room"
-        );
-        return;
-      }
+  // Add seen message handler
+  socket.on("message:seen", ({ roomId, messageId, user }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
 
-      // For media messages in non-public rooms, check if user is a member
-      if (
-        (message.type === "audio" || message.type === "image") &&
-        !room.isPublic
-      ) {
-        const canShareMedia = room.members.includes(user.id);
-        if (!canShareMedia) {
-          socket.emit(
-            "error",
-            "You do not have permission to share media in this room"
-          );
-          return;
-        }
-      }
-
-      // Store message
-      const newMessage = {
-        ...message,
-        timestamp: new Date().toISOString(),
-      };
-
-      room.messages.push(newMessage);
-      io.to(roomId).emit("message:received", newMessage);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      socket.emit("error", "Failed to send message");
+    const message = room.messages.find((m) => m.id === messageId);
+    if (message && !message.seenBy.includes(user.id)) {
+      message.seenBy.push(user.id);
+      io.to(roomId).emit("message:seen:update", {
+        messageId,
+        seenBy: message.seenBy,
+      });
     }
   });
 
